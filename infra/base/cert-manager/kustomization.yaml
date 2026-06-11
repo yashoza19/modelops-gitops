@@ -10,7 +10,27 @@ resources:
   - cert-manager-issuer.yaml
 
 patches:
-  - path: cert-manager-patches.yaml
+  - path: patch-controller.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: cert-manager
+      namespace: cert-manager
+  - path: patch-webhook.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: cert-manager-webhook
+      namespace: cert-manager
+  - path: patch-cainjector.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: cert-manager-cainjector
+      namespace: cert-manager
 
 images:
   # Pin all cert-manager images by digest - v1.14.7 release
