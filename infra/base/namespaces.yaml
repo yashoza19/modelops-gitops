@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: gitops-llm-platform
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    openshift.io/cluster-monitoring: "true"
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-llm-models
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: gitops-llm-models
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    openshift.io/cluster-monitoring: "true"
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-llm-apps
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: gitops-llm-apps
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    openshift.io/cluster-monitoring: "true"
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: external-secrets
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-pipelines
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: openshift-pipelines
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+    pod-security.kubernetes.io/enforce: "restricted"
+    pod-security.kubernetes.io/audit: "restricted"
+    pod-security.kubernetes.io/warn: "restricted"

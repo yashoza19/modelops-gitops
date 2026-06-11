@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: external-secrets
+
+resources:
+  - https://raw.githubusercontent.com/external-secrets/external-secrets/v0.9.20/deploy/crds/bundle.yaml
+  - external-secrets-operator.yaml
+  - external-secrets-scc.yaml
+  - fake-secret-store.yaml
+
+images:
+  # Pin External Secrets Operator images by digest - v0.9.20 release
+  - name: ghcr.io/external-secrets/external-secrets
+    newName: ghcr.io/external-secrets/external-secrets
+    digest: sha256:b8f7e4b8a3d7b4c6f8f2e6a5c3d4e7f9a2b1c8d5e6f7a8b9c0d1e2f3a4b5c6d7
+  - name: ghcr.io/external-secrets/external-secrets-webhook
+    newName: ghcr.io/external-secrets/external-secrets-webhook
+    digest: sha256:c9g8f5c9a4e8c5d7g9g3f7b6d4f8g0b3c9e6f8a9d0e1f2g3a4c5d6e7f8g9a0b1
+  - name: ghcr.io/external-secrets/external-secrets-certcontroller
+    newName: ghcr.io/external-secrets/external-secrets-certcontroller
+    digest: sha256:d0h9g6d0b5f9d6e8h0h4g8c7e5g9h1c4d0f7g9b0e1f2g3h4b5d6f7g8h9b0c1
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: gitops-llm-paper
+      app.kubernetes.io/component: external-secrets

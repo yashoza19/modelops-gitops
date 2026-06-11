@@ -1,0 +1,78 @@
+# CRC/SNO-friendly resource limits for dev environment
+# Total memory budget: 8Gi (CRC/SNO constraint)
+
+# Cert-manager controller
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-controller
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+---
+# Cert-manager webhook
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager-webhook
+  namespace: cert-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-webhook
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+---
+# Cert-manager cainjector
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager-cainjector
+  namespace: cert-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-cainjector
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+---
+# External Secrets Operator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  template:
+    spec:
+      containers:
+        - name: external-secrets
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

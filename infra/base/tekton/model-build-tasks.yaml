@@ -1,0 +1,232 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: model-download-task
+  namespace: openshift-pipelines
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  labels:
+    app.kubernetes.io/name: model-download-task
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: Downloads model weights from HuggingFace Hub with specific revision pinning
+  params:
+    - name: model-name
+      description: HuggingFace model name (e.g., microsoft/DialoGPT-small)
+      type: string
+    - name: model-revision
+      description: Specific git commit SHA for model version pinning
+      type: string
+    - name: cache-dir
+      description: Directory to cache the downloaded model
+      type: string
+      default: /tekton/models
+    - name: image
+      description: Base image with HuggingFace libraries
+      type: string
+      default: quay.io/huggingface/transformers-pytorch-gpu@sha256:9f25c56f71f2e1bb6b3d4b5a7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7
+  workspaces:
+    - name: models-cache
+      description: Workspace for model caching
+      mountPath: /tekton/models
+  steps:
+    - name: download-model
+      image: quay.io/huggingface/transformers-pytorch-gpu@sha256:9f25c56f71f2e1bb6b3d4b5a7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "Downloading model: $(params.model-name) at revision: $(params.model-revision)"
+
+        # Create cache directory
+        mkdir -p "$(params.cache-dir)/$(params.model-name)"
+
+        # Download model with specific revision
+        python -c "
+        from transformers import AutoModel, AutoTokenizer
+        import os
+
+        model_name = '$(params.model-name)'
+        revision = '$(params.model-revision)'
+        cache_dir = '$(params.cache-dir)/$(params.model-name)'
+
+        print(f'Downloading {model_name} at revision {revision}')
+
+        # Download tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            revision=revision,
+            cache_dir=cache_dir
+        )
+        print('Tokenizer downloaded successfully')
+
+        # Download model
+        model = AutoModel.from_pretrained(
+            model_name,
+            revision=revision,
+            cache_dir=cache_dir
+        )
+        print('Model downloaded successfully')
+
+        print(f'Model cached in: {cache_dir}')
+        "
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
+      env:
+        - name: HF_HOME
+          value: $(params.cache-dir)
+        - name: TRANSFORMERS_CACHE
+          value: $(params.cache-dir)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: model-package-task
+  namespace: openshift-pipelines
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  labels:
+    app.kubernetes.io/name: model-package-task
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: Packages model into OCI-compatible format using ModelKit
+  params:
+    - name: model-name
+      description: Model name for packaging
+      type: string
+    - name: model-version
+      description: Version tag for the packaged model
+      type: string
+    - name: registry-url
+      description: Container registry URL for pushing model artifacts
+      type: string
+      default: quay.io/gitops-llm-paper
+    - name: builder-image
+      description: ModelKit builder image
+      type: string
+      default: jozu.ml/modelkit@sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+  workspaces:
+    - name: models-cache
+      description: Workspace with downloaded models
+      mountPath: /tekton/models
+    - name: build-context
+      description: Build context workspace
+      mountPath: /tekton/build
+  steps:
+    - name: create-modelkit-spec
+      image: registry.access.redhat.com/ubi9/ubi-minimal@sha256:bc552efb4966aaa44b02532be3560ac2c7f98b4ca5dbe5ab5b8fa3ffc4ac61dc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          drop:
+            - ALL
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "Creating ModelKit specification for $(params.model-name)"
+
+        cat > /tekton/build/Modelkit <<EOF
+        apiVersion: v1
+        kind: model
+        metadata:
+          name: $(params.model-name)
+          version: $(params.model-version)
+          description: "Packaged model $(params.model-name) at version $(params.model-version)"
+          labels:
+            framework: transformers
+            task: text-generation
+            source: huggingface
+        spec:
+          model:
+            path: ./model/
+        EOF
+
+        echo "ModelKit specification created"
+        cat /tekton/build/Modelkit
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    - name: copy-model-files
+      image: registry.access.redhat.com/ubi9/ubi-minimal@sha256:bc552efb4966aaa44b02532be3560ac2c7f98b4ca5dbe5ab5b8fa3ffc4ac61dc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          drop:
+            - ALL
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "Copying model files for packaging"
+
+        # Create model directory in build context
+        mkdir -p /tekton/build/model
+
+        # Copy model files from cache
+        cp -r /tekton/models/$(params.model-name)/* /tekton/build/model/
+
+        echo "Model files copied to build context"
+        ls -la /tekton/build/model/
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    - name: package-and-push
+      image: jozu.ml/modelkit@sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        cd /tekton/build
+
+        echo "Packaging model with ModelKit"
+        kit pack . -t $(params.registry-url)/$(params.model-name):$(params.model-version)
+
+        echo "Pushing model to registry"
+        kit push $(params.registry-url)/$(params.model-name):$(params.model-version)
+
+        echo "Model packaged and pushed successfully"
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2Gi

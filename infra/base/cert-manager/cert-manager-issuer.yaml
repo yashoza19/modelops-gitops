@@ -1,0 +1,56 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-cluster-issuer
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+  labels:
+    app.kubernetes.io/name: selfsigned-cluster-issuer
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: certificate-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gitops-llm-ca-cert
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "16"
+  labels:
+    app.kubernetes.io/name: gitops-llm-ca-cert
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: ca-certificate
+spec:
+  isCA: true
+  commonName: GitOps LLM Root CA
+  subject:
+    organizationalUnits:
+      - "GitOps LLM Platform"
+    organizations:
+      - "Red Hat"
+    countries:
+      - "US"
+  secretName: gitops-llm-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: gitops-llm-ca-issuer
+  annotations:
+    argocd.argoproj.io/sync-wave: "17"
+  labels:
+    app.kubernetes.io/name: gitops-llm-ca-issuer
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: ca-issuer
+spec:
+  ca:
+    secretName: gitops-llm-ca-secret

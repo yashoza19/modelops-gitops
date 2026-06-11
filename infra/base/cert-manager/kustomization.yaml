@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: cert-manager
+
+resources:
+  - https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cert-manager.yaml
+  - cert-manager-scc.yaml
+  - cert-manager-issuer.yaml
+
+patches:
+  - path: cert-manager-patches.yaml
+
+images:
+  # Pin all cert-manager images by digest - v1.14.7 release
+  - name: quay.io/jetstack/cert-manager-controller
+    newName: quay.io/jetstack/cert-manager-controller
+    digest: sha256:37d78b9e18e02802ad37deab7cc0eabc8ea78b7b2894b6c0a9b5eea8b0b6ca46
+  - name: quay.io/jetstack/cert-manager-webhook
+    newName: quay.io/jetstack/cert-manager-webhook
+    digest: sha256:63c624a1b5e38ce7faca21dca7a0fef1dc7e07a20f994e8ec7cfe077c6efecbb
+  - name: quay.io/jetstack/cert-manager-cainjector
+    newName: quay.io/jetstack/cert-manager-cainjector
+    digest: sha256:e978e7e17a222b74133e5a8b60b73faa47a98a78b8ecf3f6dfebe2a25e8a2b22
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: gitops-llm-paper
+      app.kubernetes.io/component: cert-manager

@@ -1,0 +1,100 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-llm-root
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: gitops-llm-root
+    app.kubernetes.io/part-of: gitops-llm-paper
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yashoza19/modelops-gitops
+    targetRevision: HEAD
+    path: overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-gitops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: route.openshift.io
+      kind: Route
+      jsonPointers:
+        - /status/ingress
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gitops-llm-platform
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/name: gitops-llm-platform
+    app.kubernetes.io/part-of: gitops-llm-paper
+spec:
+  generators:
+    - list:
+        elements:
+          - name: infra-base
+            path: infra/base
+            wave: "10"
+          - name: ai-platform
+            path: infra/ai-platform
+            wave: "20"
+          - name: models
+            path: infra/models
+            wave: "30"
+          - name: apps
+            path: infra/apps
+            wave: "40"
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: openshift-gitops
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{wave}}'
+      labels:
+        app.kubernetes.io/name: '{{name}}'
+        app.kubernetes.io/part-of: gitops-llm-paper
+        app.kubernetes.io/component: platform-layer
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/yashoza19/modelops-gitops
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: openshift-gitops
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 5m
