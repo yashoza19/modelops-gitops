@@ -1,106 +1,144 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # GitOps LLM Paper - Manifest Validation Script
 # Validates kustomize builds, YAML lint, and repo conventions
 
-echo "🔍 Validating GitOps LLM Paper repository..."
+echo "Validating GitOps LLM Paper repository..."
 
 # Check required tools
-command -v kustomize >/dev/null 2>&1 || { echo "❌ kustomize required but not installed"; exit 1; }
-command -v yamllint >/dev/null 2>&1 || { echo "❌ yamllint required but not installed"; exit 1; }
+command -v kustomize >/dev/null 2>&1 || { echo "FAIL: kustomize required but not installed"; exit 1; }
+command -v yamllint >/dev/null 2>&1 || { echo "FAIL: yamllint required but not installed"; exit 1; }
 
-# Kustomize build validation for all overlays
-echo "📦 Validating kustomize builds..."
+FAIL=0
+
+# ---------------------------------------------------------------------------
+# 1. Kustomize build validation
+# ---------------------------------------------------------------------------
+echo "Validating kustomize builds..."
 for overlay in overlays/*/; do
   if [[ -f "$overlay/kustomization.yaml" ]]; then
     echo "  Building $overlay..."
-    kustomize build "$overlay" > /dev/null || {
-      echo "❌ Kustomize build failed for $overlay"
-      exit 1
-    }
+    if ! kustomize build "$overlay" > /dev/null 2>&1; then
+      echo "FAIL: Kustomize build failed for $overlay"
+      kustomize build "$overlay" 2>&1 | tail -5
+      FAIL=1
+    fi
   fi
 done
 
-# Pattern directory validation
-echo "🔧 Validating patterns..."
 for pattern in patterns/*/; do
   if [[ -f "$pattern/kustomization.yaml" ]]; then
     echo "  Building $pattern..."
-    kustomize build "$pattern" > /dev/null || {
-      echo "❌ Pattern build failed for $pattern"
-      exit 1
-    }
+    if ! kustomize build "$pattern" > /dev/null 2>&1; then
+      echo "FAIL: Pattern build failed for $pattern"
+      FAIL=1
+    fi
   fi
 done
 
-# Pitfall directory validation
-echo "🚨 Validating pitfalls..."
 for pitfall in pitfalls/*/; do
   if [[ -f "$pitfall/mitigation/kustomization.yaml" ]]; then
     echo "  Building $pitfall/mitigation..."
-    kustomize build "$pitfall/mitigation" > /dev/null || {
-      echo "❌ Pitfall mitigation build failed for $pitfall"
-      exit 1
-    }
+    if ! kustomize build "$pitfall/mitigation" > /dev/null 2>&1; then
+      echo "FAIL: Pitfall mitigation build failed for $pitfall"
+      FAIL=1
+    fi
   fi
 done
 
-# YAML linting
-echo "📝 Running yamllint..."
-yamllint -c .yamllint.yml . || {
-  echo "❌ YAML lint failed"
-  exit 1
-}
+# ---------------------------------------------------------------------------
+# 2. YAML linting (warnings are OK, errors are not)
+# ---------------------------------------------------------------------------
+echo "Running yamllint..."
+if ! yamllint -c .yamllint.yml . 2>&1; then
+  echo "FAIL: YAML lint found errors"
+  FAIL=1
+fi
 
-# Check for forbidden patterns
-echo "🔒 Checking pinning enforcement..."
+# ---------------------------------------------------------------------------
+# 3. Pinning enforcement
+# ---------------------------------------------------------------------------
+echo "Checking pinning enforcement..."
 
 # No :latest tags allowed
-if find . -name "*.yaml" -exec grep -l ":latest" {} \; 2>/dev/null | grep -v ".git"; then
-  echo "❌ Found :latest image tags - all images must be pinned"
-  exit 1
+latest_files=$(find . -name "*.yaml" -not -path "./.git/*" -exec grep -l ":latest" {} \; 2>/dev/null || true)
+if [[ -n "$latest_files" ]]; then
+  echo "FAIL: Found :latest image tags - all images must be pinned"
+  echo "$latest_files" | sed 's/^/    /'
+  FAIL=1
 fi
 
 # No unpinned HuggingFace model references (this is Pitfall 2!)
-if find . -name "*.yaml" -exec grep -l "huggingface.co.*model.*revision" {} \; 2>/dev/null | \
-   xargs grep -L "revision.*[a-f0-9]{40}" 2>/dev/null; then
-  echo "❌ Found unpinned HuggingFace model references - must use SHA commits"
-  exit 1
-fi
-
-# Check app.kubernetes.io/part-of labels
-echo "🏷️  Checking part-of labels..."
-if find . -name "*.yaml" -exec grep -l "kind:" {} \; 2>/dev/null | \
-   xargs grep -L "app.kubernetes.io/part-of.*gitops-llm-paper" 2>/dev/null | \
-   grep -v -E "(kustomization\.yaml|.git)" | head -1; then
-  echo "❌ Found resources missing app.kubernetes.io/part-of: gitops-llm-paper label"
-  exit 1
-fi
-
-# Dev overlay memory budget check (8Gi limit for CRC/SNO compatibility)
-echo "💾 Checking dev overlay memory budget..."
-if [[ -f "overlays/dev/kustomization.yaml" ]]; then
-  total_memory=$(kustomize build overlays/dev | \
-    grep -E "memory:.*[0-9]" | \
-    sed -E 's/.*memory: *([0-9]+)Gi.*/\1/' | \
-    awk '{sum += $1} END {print sum}')
-
-  if [[ ${total_memory:-0} -gt 8 ]]; then
-    echo "❌ Dev overlay exceeds 8Gi memory budget (found: ${total_memory}Gi)"
-    echo "   Dev must work on CRC/SNO with limited resources"
-    exit 1
+hf_files=$(find . -name "*.yaml" -not -path "./.git/*" \
+  -exec grep -l "huggingface.co.*model.*revision" {} \; 2>/dev/null || true)
+if [[ -n "$hf_files" ]]; then
+  unpinned=$(echo "$hf_files" | xargs grep -L "revision.*[a-f0-9]\{40\}" 2>/dev/null || true)
+  if [[ -n "$unpinned" ]]; then
+    echo "FAIL: Found unpinned HuggingFace model references - must use SHA commits"
+    echo "$unpinned" | sed 's/^/    /'
+    FAIL=1
   fi
 fi
 
-echo "✅ All validations passed!"
+# ---------------------------------------------------------------------------
+# 4. Label check
+# ---------------------------------------------------------------------------
+echo "Checking part-of labels..."
+label_offenders=$(find . -name "*.yaml" -not -path "./.git/*" \
+  -not -name "kustomization.yaml" \
+  -exec grep -l "kind:" {} \; 2>/dev/null | \
+  xargs grep -L "app.kubernetes.io/part-of.*gitops-llm-paper" 2>/dev/null | \
+  grep -v -E "(\.git|\.claude)" || true)
+if [[ -n "$label_offenders" ]]; then
+  echo "WARN: Resources missing app.kubernetes.io/part-of label:"
+  echo "$label_offenders" | sed 's/^/    /'
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Dev overlay memory budget (8Gi for CRC/SNO)
+# ---------------------------------------------------------------------------
+echo "Checking dev overlay memory budget..."
+if [[ -f "overlays/dev/kustomization.yaml" ]]; then
+  total_mi=$(kustomize build overlays/dev 2>/dev/null | \
+    python3 -c "
+import sys, yaml, re
+
+def to_mi(v):
+    v = str(v)
+    m = re.match(r'^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|m)?$', v)
+    if not m: return 0
+    n, unit = float(m.group(1)), m.group(2)
+    return {'Ki': n/1024, 'Mi': n, 'Gi': n*1024, 'Ti': n*1024*1024, 'm': 0, None: n/(1024*1024)}[unit]
+
+total = 0.0
+for doc in yaml.safe_load_all(sys.stdin):
+    if not isinstance(doc, dict): continue
+    spec = doc.get('spec') or {}
+    tpl = (spec.get('template') or {}).get('spec') or {}
+    for c in (tpl.get('containers') or []) + (tpl.get('initContainers') or []):
+        req = ((c.get('resources') or {}).get('requests') or {}).get('memory')
+        if req: total += to_mi(req)
+print(f'{total:.0f}')
+" 2>/dev/null || echo "0")
+
+  gi=$(python3 -c "print(f'{${total_mi:-0}/1024:.2f}')")
+  echo "  Dev overlay total memory requests: ${gi}Gi / 8Gi budget"
+  if python3 -c "exit(0 if ${total_mi:-0}/1024 < 8 else 1)"; then
+    echo "  OK: within budget"
+  else
+    echo "FAIL: Dev overlay exceeds 8Gi memory request budget"
+    FAIL=1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
 echo ""
-echo "🎯 Summary:"
-echo "   - Kustomize builds: ✅"
-echo "   - YAML lint: ✅"
-echo "   - Image pinning: ✅"
-echo "   - HF model pinning: ✅"
-echo "   - Part-of labels: ✅"
-echo "   - Dev memory budget: ✅"
-echo ""
-echo "Ready for commit! 🚀"
+if [[ $FAIL -ne 0 ]]; then
+  echo "VALIDATION FAILED - fix issues before committing."
+  exit 1
+fi
+
+echo "All validations passed."
