@@ -16,4 +16,7 @@ labels:
 namePrefix: dev-
 
 patches:
-  - path: resource-patches.yaml
+  - path: patch-certmgr-controller.yaml
+  - path: patch-certmgr-webhook.yaml
+  - path: patch-certmgr-cainjector.yaml
+  - path: patch-external-secrets.yaml
