@@ -1,0 +1,12 @@
+{
+  "line-length": {
+    "line_length": 150,
+    "code_blocks": false,
+    "tables": false
+  },
+  "no-trailing-punctuation": {
+    "punctuation": ".,;:!?"
+  },
+  "no-duplicate-heading": false,
+  "no-inline-html": false
+}

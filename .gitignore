@@ -1,0 +1,48 @@
+# GitOps LLM Paper Repository .gitignore
+
+# Paper build artifacts
+paper/*.pdf
+paper/*.docx
+paper/*.tex
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.blg
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and runtime
+*.log
+logs/
+
+# OS generated files
+Thumbs.db
+
+# Kubernetes local testing
+kubeconfig
+*.kubeconfig
+
+# Local development overrides
+overlays/local/
+settings.local.json
+
+# Model weights (should never be in git)
+*.safetensors
+*.bin
+*.pt
+*.pth
+models/weights/
+
+# Cache directories
+.cache/
+__pycache__/
