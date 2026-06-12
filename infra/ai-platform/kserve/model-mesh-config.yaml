@@ -1,0 +1,77 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-mesh-config
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-mesh-config
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: config
+data:
+  config.yaml: |
+    inferenceServiceConfig:
+      "vllm":
+        "protocols":
+          - "v2"
+          - "grpc-v2"
+        "multiModelServer": false
+    storageConfig:
+      "s3":
+        "type": "s3"
+        "access_key_id": ""
+        "secret_access_key": ""
+        "region": "us-east-1"
+        "bucket": "model-registry"
+        "defaultBucket": "model-registry"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-mesh
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-mesh
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-account
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: model-mesh-cluster-role
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-mesh-cluster-role
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: rbac
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices", "servingruntimes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: model-mesh-cluster-binding
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-mesh-cluster-binding
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: model-mesh
+    namespace: gitops-llm-platform
+roleRef:
+  kind: ClusterRole
+  name: model-mesh-cluster-role
+  apiGroup: rbac.authorization.k8s.io

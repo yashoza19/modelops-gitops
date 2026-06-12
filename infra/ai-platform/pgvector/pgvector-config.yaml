@@ -1,0 +1,255 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgvector-config
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: pgvector-config
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: config
+data:
+  init.sql: |
+    -- Enable the vector extension
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    -- Create embeddings table with vector column
+    CREATE TABLE IF NOT EXISTS embeddings (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        metadata JSONB DEFAULT '{}',
+        embedding VECTOR(768),
+        model_name VARCHAR(255) DEFAULT 'default',
+        chunk_index INTEGER DEFAULT 0,
+        source_document VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    -- Create indexes for efficient vector similarity search
+    -- Using IVFFlat for large datasets
+    CREATE INDEX IF NOT EXISTS embeddings_embedding_cosine_idx
+        ON embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+    -- L2 distance index
+    CREATE INDEX IF NOT EXISTS embeddings_embedding_l2_idx
+        ON embeddings USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
+
+    -- Inner product index
+    CREATE INDEX IF NOT EXISTS embeddings_embedding_ip_idx
+        ON embeddings USING ivfflat (embedding vector_ip_ops) WITH (lists = 100);
+
+    -- Metadata indexes for filtering
+    CREATE INDEX IF NOT EXISTS embeddings_metadata_gin_idx ON embeddings USING gin (metadata);
+    CREATE INDEX IF NOT EXISTS embeddings_model_name_idx ON embeddings (model_name);
+    CREATE INDEX IF NOT EXISTS embeddings_source_document_idx ON embeddings (source_document);
+    CREATE INDEX IF NOT EXISTS embeddings_created_at_idx ON embeddings (created_at);
+
+    -- Model registry table
+    CREATE TABLE IF NOT EXISTS model_embeddings_registry (
+        id SERIAL PRIMARY KEY,
+        model_name VARCHAR(255) UNIQUE NOT NULL,
+        embedding_dimension INTEGER NOT NULL,
+        model_type VARCHAR(100) DEFAULT 'sentence-transformer',
+        model_version VARCHAR(100),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    -- Insert default embedding model info
+    INSERT INTO model_embeddings_registry (model_name, embedding_dimension, model_type, model_version)
+    VALUES
+        ('sentence-transformers/all-MiniLM-L6-v2', 384, 'sentence-transformer', 'v2.2.2'),
+        ('sentence-transformers/all-mpnet-base-v2', 768, 'sentence-transformer', 'v2.2.2'),
+        ('text-embedding-ada-002', 1536, 'openai', 'v1'),
+        ('nomic-embed-text-v1', 768, 'nomic', 'v1')
+    ON CONFLICT (model_name) DO NOTHING;
+
+    -- Function to search similar embeddings
+    CREATE OR REPLACE FUNCTION search_embeddings(
+        query_embedding VECTOR(768),
+        match_threshold FLOAT DEFAULT 0.8,
+        match_count INT DEFAULT 10,
+        filter_metadata JSONB DEFAULT '{}'::jsonb
+    )
+    RETURNS TABLE(
+        id INTEGER,
+        content TEXT,
+        metadata JSONB,
+        embedding VECTOR(768),
+        similarity FLOAT
+    )
+    LANGUAGE SQL STABLE
+    AS $$
+        SELECT
+            e.id,
+            e.content,
+            e.metadata,
+            e.embedding,
+            1 - (e.embedding <=> query_embedding) AS similarity
+        FROM embeddings e
+        WHERE
+            (filter_metadata = '{}'::jsonb OR e.metadata @> filter_metadata)
+            AND 1 - (e.embedding <=> query_embedding) > match_threshold
+        ORDER BY e.embedding <=> query_embedding
+        LIMIT match_count;
+    $$;
+
+    -- Function to update embeddings updated_at timestamp
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ language 'plpgsql';
+
+    -- Trigger to automatically update updated_at
+    CREATE TRIGGER update_embeddings_updated_at
+        BEFORE UPDATE ON embeddings
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column();
+
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO vectoruser;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO vectoruser;
+    GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO vectoruser;
+
+  connection.yaml: |
+    database:
+      host: postgresql-pgvector-rw.gitops-llm-platform.svc.cluster.local
+      port: 5432
+      database: vectordb
+      username: vectoruser
+      password_secret: postgresql-pgvector-credentials
+      password_key: password
+      ssl_mode: prefer
+      max_connections: 20
+      connection_timeout: 30
+
+    vector_search:
+      default_similarity_threshold: 0.8
+      default_match_count: 10
+      index_type: ivfflat
+      distance_metric: cosine
+
+    performance:
+      work_mem: "16MB"
+      maintenance_work_mem: "64MB"
+      effective_cache_size: "1GB"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgvector-metrics
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: pgvector-metrics
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service
+spec:
+  ports:
+  - name: metrics
+    port: 9187
+    targetPort: 9187
+  selector:
+    postgresql: postgresql-pgvector
+    role: primary
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgvector-exporter
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: pgvector-exporter
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgvector-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgvector-exporter
+        app.kubernetes.io/part-of: gitops-llm-paper
+        app.kubernetes.io/component: monitoring
+    spec:
+      serviceAccountName: pgvector-exporter
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+      - name: postgres-exporter
+        image: quay.io/prometheuscommunity/postgres-exporter@sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+        env:
+        - name: DATA_SOURCE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: pgvector-exporter-secret
+              key: data-source-name
+        ports:
+        - containerPort: 9187
+          name: metrics
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9187
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9187
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pgvector-exporter
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: pgvector-exporter
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-account
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pgvector-exporter-secret
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: pgvector-exporter-secret
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: secret
+type: Opaque
+stringData:
+  data-source-name: "postgresql://vectoruser:vectorpassword123!@postgresql-pgvector-rw.gitops-llm-platform.svc.cluster.local:5432/vectordb?sslmode=prefer"

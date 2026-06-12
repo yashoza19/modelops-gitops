@@ -1,0 +1,188 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm-models
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: vllm-models
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: vllm-runtime
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - gitops-llm-platform
+    - gitops-llm-models
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pgvector-database
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: pgvector-database
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgvector-metrics
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - gitops-llm-platform
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: model-registry
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: model-registry
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: model-registry-controller-metrics-service
+  endpoints:
+  - port: https
+    interval: 30s
+    path: /metrics
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+  namespaceSelector:
+    matchNames:
+    - gitops-llm-platform
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kserve-inference
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: kserve-inference
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-monitor
+spec:
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: "true"
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - gitops-llm-platform
+    - gitops-llm-models
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nvidia-dcgm
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: nvidia-dcgm
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-monitor
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-dcgm-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - nvidia-gpu-operator
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argocd-applications
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: argocd-applications
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: pod-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-application-controller
+  podMetricsEndpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - argocd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-llm-platform
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: prometheus-llm-platform
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service
+spec:
+  ports:
+  - name: web
+    port: 9090
+    targetPort: 9090
+  selector:
+    prometheus: llm-platform-prometheus
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: prometheus-llm-platform
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  labels:
+    app.kubernetes.io/name: prometheus-llm-platform-route
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: route
+spec:
+  to:
+    kind: Service
+    name: prometheus-llm-platform
+  port:
+    targetPort: web
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

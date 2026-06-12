@@ -1,0 +1,29 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgresql-pgvector
+  namespace: gitops-llm-platform
+spec:
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: hostpath-provisioner
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+  postgresql:
+    parameters:
+      max_connections: "50"
+      shared_buffers: "64MB"
+      effective_cache_size: "256MB"
+      maintenance_work_mem: "16MB"
+      checkpoint_completion_target: "0.5"
+      wal_buffers: "4MB"
+      default_statistics_target: "50"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "100"

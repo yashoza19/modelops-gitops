@@ -7,6 +7,7 @@ metadata:
 
 resources:
   - ../../infra/base
+  - sample-cpu-model.yaml
 
 labels:
   - pairs:
@@ -17,7 +18,32 @@ labels:
 namePrefix: dev-
 
 patches:
+  # Platform patches
   - path: patch-certmgr-controller.yaml
   - path: patch-certmgr-webhook.yaml
   - path: patch-certmgr-cainjector.yaml
   - path: patch-external-secrets.yaml
+
+  # AI Platform patches for dev environment (CPU-only, memory optimized)
+  - path: patch-vllm-cpu-only.yaml
+  - path: patch-postgresql-dev-resources.yaml
+  - path: patch-minio-dev-resources.yaml
+  - path: patch-model-registry-dev-resources.yaml
+  - path: patch-prometheus-dev-resources.yaml
+
+# Replace GPU node selectors with CPU-only for dev
+
+# Resource limits for 8Gi budget compliance
+patchesJson6902:
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      name: model-cache-pvc
+      namespace: gitops-llm-platform
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: "2Gi"
+      - op: replace
+        path: /spec/storageClassName
+        value: "hostpath-provisioner"

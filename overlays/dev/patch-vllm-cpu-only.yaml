@@ -1,0 +1,41 @@
+# Patch to disable GPU runtime and reduce memory for dev overlay
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime-gpu
+  namespace: gitops-llm-platform
+spec:
+  # Reduce resources for dev environment
+  containers:
+    - name: kserve-container
+      resources:
+        requests:
+          cpu: 1
+          memory: 1Gi
+        limits:
+          cpu: 2
+          memory: 2Gi
+      # Remove GPU requirements
+      env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: ""
+        - name: VLLM_CPU_KVCACHE_SPACE
+          value: "2"
+        - name: VLLM_ATTENTION_BACKEND
+          value: "TORCH_SDPA"
+      args:
+        - --model=/mnt/models
+        - --port=8080
+        - --trust-remote-code
+        - --tensor-parallel-size=1
+        - --max-model-len=1024
+        - --disable-log-stats
+        - --disable-custom-all-reduce
+        - --enforce-eager
+        - --cpu-offload-gb=0
+        - --num-scheduler-steps=1
+  # Change to CPU-only node selector
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  tolerations: []

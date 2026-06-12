@@ -1,0 +1,120 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgresql-pgvector
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: postgresql-pgvector
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: database
+spec:
+  instances: 1
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+      effective_cache_size: "1GB"
+      maintenance_work_mem: "64MB"
+      checkpoint_completion_target: "0.5"
+      wal_buffers: "16MB"
+      default_statistics_target: "100"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+    shared_preload_libraries:
+      - "vector"
+
+  imageName: registry.redhat.io/rhel8/postgresql-15@sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+
+  initdb:
+    database: vectordb
+    owner: vectoruser
+    secret:
+      name: postgresql-pgvector-credentials
+    postInitApplicationSQL:
+      - |
+        CREATE EXTENSION IF NOT EXISTS vector;
+        CREATE TABLE IF NOT EXISTS embeddings (
+          id SERIAL PRIMARY KEY,
+          content TEXT,
+          metadata JSONB,
+          embedding VECTOR(768),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS embeddings_embedding_idx ON embeddings USING ivfflat (embedding vector_cosine_ops);
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO vectoruser;
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO vectoruser;
+
+  storage:
+    size: 20Gi
+    storageClass: ocs-storagecluster-ceph-rbd
+    resizeInUseVolumes: true
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+  monitoring:
+    enabled: true
+    podMonitorEnabled: true
+
+  backup:
+    retentionPolicy: "7d"
+    barmanObjectStore:
+      destinationPath: "s3://postgresql-backup"
+      s3Credentials:
+        accessKeyId:
+          name: backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        retention: "7d"
+      data:
+        retention: "7d"
+
+  nodeMaintenanceWindow:
+    inProgress: false
+    reusePVC: true
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql-pgvector-credentials
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: postgresql-pgvector-credentials
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: secret
+type: Opaque
+stringData:
+  username: vectoruser
+  password: vectorpassword123!
+  database: vectordb
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-credentials
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: backup-credentials
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: secret
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: minioadmin
+  SECRET_ACCESS_KEY: minioadmin

@@ -1,0 +1,182 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: model-registry-db-secret
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-registry-db-secret
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: secret
+type: Opaque
+stringData:
+  database-url: "postgresql://model_registry:model_registry_password@postgresql.gitops-llm-platform.svc.cluster.local:5432/model_registry"
+  username: "model_registry"
+  password: "model_registry_password"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-storage-config
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: model-storage-config
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: config
+data:
+  storage.yaml: |
+    storage:
+      providers:
+        s3:
+          type: s3
+          config:
+            region: us-east-1
+            bucket: model-artifacts
+            endpoint: minio.gitops-llm-platform.svc.cluster.local:9000
+            accessKeyId: minioadmin
+            secretAccessKey: minioadmin
+            useSSL: false
+        huggingface:
+          type: huggingface
+          config:
+            cache_dir: /tmp/hf-cache
+            use_auth_token: false
+        oci:
+          type: oci
+          config:
+            registry: quay.io/gitops-llm-paper
+            auth:
+              username: ""
+              password: ""
+    cache:
+      local:
+        path: /tmp/model-cache
+        maxSizeGB: 50
+      shared:
+        type: pvc
+        storageClass: gp3-csi
+        size: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache-pvc
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: model-cache-pvc
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: ocs-storagecluster-cephfs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/part-of: gitops-llm-paper
+        app.kubernetes.io/component: storage
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: quay.io/minio/minio@sha256:b8f9a5f8c1d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          env:
+            - name: MINIO_ROOT_USER
+              value: minioadmin
+            - name: MINIO_ROOT_PASSWORD
+              value: minioadmin
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: model-cache-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service
+spec:
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  selector:
+    app.kubernetes.io/name: minio

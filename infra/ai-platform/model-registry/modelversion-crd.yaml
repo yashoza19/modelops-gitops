@@ -1,0 +1,194 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelversions.gitops.llm.paper
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: modelversion-crd
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: crd
+spec:
+  group: gitops.llm.paper
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            properties:
+              modelName:
+                type: string
+                description: "Name of the model (e.g., microsoft/DialoGPT-medium)"
+              version:
+                type: string
+                description: "Version or revision of the model"
+              format:
+                type: string
+                enum: ["huggingface", "onnx", "pytorch", "safetensors", "oci"]
+                description: "Model format type"
+              source:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: ["huggingface", "s3", "oci-registry", "git"]
+                  uri:
+                    type: string
+                    description: "Source URI for the model"
+                  revision:
+                    type: string
+                    description: "Git commit SHA, HF revision, or OCI digest"
+                  credentials:
+                    type: object
+                    properties:
+                      secretRef:
+                        type: string
+                        description: "Reference to secret containing credentials"
+                required:
+                - type
+                - uri
+              quantization:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: false
+                  method:
+                    type: string
+                    enum: ["gptq", "awq", "bitsandbytes", "fp16", "int8", "int4"]
+                  config:
+                    type: object
+                    additionalProperties: true
+              hardware:
+                type: object
+                properties:
+                  requirements:
+                    type: object
+                    properties:
+                      gpu:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                            minimum: 0
+                          memory:
+                            type: string
+                            description: "GPU memory requirement (e.g., '8Gi', '24Gi')"
+                          vendor:
+                            type: string
+                            enum: ["nvidia", "amd", "intel"]
+                      cpu:
+                        type: object
+                        properties:
+                          cores:
+                            type: integer
+                            minimum: 1
+                          memory:
+                            type: string
+                            description: "CPU memory requirement (e.g., '4Gi', '8Gi')"
+              compatibility:
+                type: object
+                properties:
+                  vllm:
+                    type: boolean
+                    default: true
+                  transformers:
+                    type: boolean
+                    default: true
+                  kserve:
+                    type: boolean
+                    default: true
+            required:
+            - modelName
+            - version
+            - format
+            - source
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+                enum: ["Pending", "Downloading", "Ready", "Failed"]
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                    message:
+                      type: string
+              downloadProgress:
+                type: object
+                properties:
+                  bytesDownloaded:
+                    type: integer
+                    format: int64
+                  totalBytes:
+                    type: integer
+                    format: int64
+                  lastUpdated:
+                    type: string
+                    format: date-time
+              modelPath:
+                type: string
+                description: "Local path where model is stored"
+              checksumVerified:
+                type: boolean
+                default: false
+              lastValidated:
+                type: string
+                format: date-time
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Model
+      type: string
+      description: Model name
+      jsonPath: .spec.modelName
+    - name: Version
+      type: string
+      description: Model version/revision
+      jsonPath: .spec.version
+    - name: Format
+      type: string
+      description: Model format
+      jsonPath: .spec.format
+    - name: Phase
+      type: string
+      description: Model phase
+      jsonPath: .status.phase
+    - name: GPU Required
+      type: integer
+      description: GPU count required
+      jsonPath: .spec.hardware.requirements.gpu.count
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: modelversions
+    singular: modelversion
+    kind: ModelVersion
+    shortNames:
+    - mv
+    - models

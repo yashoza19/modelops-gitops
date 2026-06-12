@@ -1,0 +1,45 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: llm-platform-prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  retention: 3d
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: hostpath-provisioner
+        resources:
+          requests:
+            storage: 2Gi
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: llm-platform-alertmanager
+  namespace: monitoring
+spec:
+  replicas: 1
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: hostpath-provisioner
+        resources:
+          requests:
+            storage: 512Mi
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"

@@ -1,0 +1,126 @@
+---
+apiVersion: gitops.llm.paper/v1alpha1
+kind: ModelVersion
+metadata:
+  name: distilbert-base-uncased-cpu
+  namespace: gitops-llm-models
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  labels:
+    app.kubernetes.io/name: distilbert-base-uncased-cpu
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: model
+    gitops.llm.paper/model-type: cpu-optimized
+    gitops.llm.paper/environment: dev
+spec:
+  modelName: distilbert-base-uncased
+  version: main
+  format: huggingface
+  source:
+    type: huggingface
+    uri: distilbert-base-uncased
+    revision: 1c4513b2eedbda136f57676a34ebd5b6b0dcc8fcf   # Pinned revision - no :latest
+  quantization:
+    enabled: true
+    method: int8
+    config:
+      bits: 8
+      group_size: 128
+  hardware:
+    requirements:
+      gpu:
+        count: 0
+      cpu:
+        cores: 2
+        memory: "2Gi"
+  compatibility:
+    vllm: true
+    transformers: true
+    kserve: true
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: distilbert-cpu-demo
+  namespace: gitops-llm-models
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    serving.kserve.io/deploymentMode: Serverless
+  labels:
+    app.kubernetes.io/name: distilbert-cpu-demo
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: inference-service
+    gitops.llm.paper/environment: dev
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: pytorch
+      runtime: vllm-runtime-cpu
+      resources:
+        requests:
+          cpu: 1
+          memory: 1Gi
+        limits:
+          cpu: 2
+          memory: 2Gi
+      env:
+        - name: MODEL_NAME
+          value: "distilbert-base-uncased"
+        - name: VLLM_CPU_KVCACHE_SPACE
+          value: "2"
+        - name: VLLM_ATTENTION_BACKEND
+          value: "TORCH_SDPA"
+      nodeSelector:
+        kubernetes.io/arch: amd64
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dev-model-catalog
+  namespace: gitops-llm-models
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: dev-model-catalog
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: config
+data:
+  models.yaml: |
+    models:
+      cpu_optimized:
+        - name: distilbert-base-uncased
+          description: "Lightweight BERT model for text classification and embeddings"
+          size: "268MB"
+          parameters: "66M"
+          context_length: 512
+          use_cases: ["text-classification", "embeddings", "feature-extraction"]
+          memory_footprint: "~1.5Gi"
+          cpu_cores: 2
+
+        - name: microsoft/DialoGPT-small
+          description: "Small conversational model for chatbot applications"
+          size: "117MB"
+          parameters: "117M"
+          context_length: 1024
+          use_cases: ["conversation", "dialog", "chatbot"]
+          memory_footprint: "~2Gi"
+          cpu_cores: 2
+
+      quantized:
+        - name: microsoft/DialoGPT-medium-int8
+          description: "Quantized medium conversational model"
+          size: "154MB"
+          parameters: "354M"
+          context_length: 1024
+          quantization: "int8"
+          memory_footprint: "~1.8Gi"
+          cpu_cores: 2
+
+    budget_constraints:
+      dev_environment:
+        total_memory_limit: "8Gi"
+        per_model_memory_limit: "2Gi"
+        cpu_limit_per_model: 2
+        storage_limit: "5Gi"
+        concurrent_models: 2

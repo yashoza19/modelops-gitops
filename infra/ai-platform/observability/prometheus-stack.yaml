@@ -1,0 +1,229 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    openshift.io/cluster-monitoring: "true"
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: namespace
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: prometheus-operator
+  namespace: openshift-operators
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: operator
+spec:
+  channel: beta
+  name: prometheus
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: llm-platform-prometheus
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: llm-platform-prometheus
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  retention: 7d
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: ocs-storagecluster-ceph-rbd
+        resources:
+          requests:
+            storage: 10Gi
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "500m"
+  serviceAccountName: llm-platform-prometheus
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+  podMetadata:
+    labels:
+      app.kubernetes.io/name: llm-platform-prometheus
+      app.kubernetes.io/part-of: gitops-llm-paper
+  serviceMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: gitops-llm-paper
+  podMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: gitops-llm-paper
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: gitops-llm-paper
+  alerting:
+    alertmanagers:
+    - namespace: monitoring
+      name: llm-platform-alertmanager
+      port: web
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: llm-platform-prometheus
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: llm-platform-prometheus
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: service-account
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: llm-platform-prometheus
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: llm-platform-prometheus
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: rbac
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources:
+  - configmaps
+  verbs: ["get"]
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: llm-platform-prometheus
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: llm-platform-prometheus
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llm-platform-prometheus
+subjects:
+- kind: ServiceAccount
+  name: llm-platform-prometheus
+  namespace: monitoring
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: llm-platform-alertmanager
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: llm-platform-alertmanager
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: alertmanager
+spec:
+  replicas: 1
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: ocs-storagecluster-ceph-rbd
+        resources:
+          requests:
+            storage: 2Gi
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+  configSecret: alertmanager-llm-platform-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-llm-platform-config
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: alertmanager-config
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: config
+type: Opaque
+stringData:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'localhost:587'
+      smtp_from: 'alertmanager@gitops-llm-paper.local'
+
+    route:
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'web.hook'
+      routes:
+      - match:
+          alertname: LLMModelDown
+        receiver: 'llm-critical'
+      - match:
+          alertname: VectorDBConnectionFailed
+        receiver: 'vector-critical'
+
+    receivers:
+    - name: 'web.hook'
+      webhook_configs:
+      - url: 'http://webhook.monitoring.svc.cluster.local:5001/'
+
+    - name: 'llm-critical'
+      slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#llm-alerts'
+        title: 'LLM Model Critical Alert'
+        text: 'LLM model serving is experiencing issues'
+
+    - name: 'vector-critical'
+      slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#db-alerts'
+        title: 'Vector Database Alert'
+        text: 'Vector database connection failed'

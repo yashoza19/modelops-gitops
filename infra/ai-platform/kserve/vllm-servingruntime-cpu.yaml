@@ -1,0 +1,87 @@
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime-cpu
+  namespace: gitops-llm-platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    serving.kserve.io/deploymentMode: ModelMesh
+  labels:
+    app.kubernetes.io/name: vllm-runtime-cpu
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: serving-runtime
+spec:
+  supportedModelFormats:
+    - name: pytorch
+      version: "1"
+      autoSelect: true
+    - name: vllm
+      version: "1"
+      autoSelect: true
+  protocolVersions:
+    - grpc-v2
+    - v2
+  multiModel: false
+  containers:
+    - name: kserve-container
+      image: vllm/vllm-openai@sha256:b8f9a5f8c1d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0
+      command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      args:
+        - --model=/mnt/models
+        - --port=8080
+        - --trust-remote-code
+        - --tensor-parallel-size=1
+        - --max-model-len=2048
+        - --disable-log-stats
+        - --disable-custom-all-reduce
+        - --enforce-eager
+        - --cpu-offload-gb=0
+        - --num-scheduler-steps=1
+      env:
+        - name: VLLM_CPU_KVCACHE_SPACE
+          value: "4"
+        - name: VLLM_ATTENTION_BACKEND
+          value: TORCH_SDPA
+        - name: HF_HOME
+          value: "/tmp/hf-home"
+        - name: TRANSFORMERS_CACHE
+          value: "/tmp/transformers-cache"
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 2
+          memory: 4Gi
+        limits:
+          cpu: 4
+          memory: 6Gi
+      volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: hf-cache
+          mountPath: /tmp/hf-home
+        - name: transformers-cache
+          mountPath: /tmp/transformers-cache
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+  volumes:
+    - name: tmp-volume
+      emptyDir: {}
+    - name: hf-cache
+      emptyDir:
+        sizeLimit: 1Gi
+    - name: transformers-cache
+      emptyDir:
+        sizeLimit: 1Gi
+  nodeSelector:
+    kubernetes.io/arch: amd64

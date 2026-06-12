@@ -1,0 +1,181 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: llm-platform-alerts
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/name: llm-platform-alerts
+    app.kubernetes.io/part-of: gitops-llm-paper
+    app.kubernetes.io/component: alerting-rules
+spec:
+  groups:
+  - name: llm-model-health
+    rules:
+    - alert: LLMModelDown
+      expr: up{job="vllm-models"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: llm-serving
+      annotations:
+        summary: "LLM model instance is down"
+        description: "vLLM model {{ $labels.model }} on {{ $labels.instance }} has been down for more than 2 minutes"
+
+    - alert: LLMHighLatency
+      expr: histogram_quantile(0.95, rate(vllm_request_duration_seconds_bucket[5m])) > 10
+      for: 5m
+      labels:
+        severity: warning
+        component: llm-serving
+      annotations:
+        summary: "LLM response latency is high"
+        description: "LLM model {{ $labels.model }} has P95 latency above 10s for 5 minutes"
+
+    - alert: LLMHighErrorRate
+      expr: rate(vllm_request_errors_total[5m]) / rate(vllm_requests_total[5m]) > 0.1
+      for: 3m
+      labels:
+        severity: warning
+        component: llm-serving
+      annotations:
+        summary: "LLM error rate is high"
+        description: "LLM model {{ $labels.model }} has error rate above 10% for 3 minutes"
+
+  - name: gpu-resources
+    rules:
+    - alert: GPUMemoryHigh
+      expr: nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: gpu-resources
+      annotations:
+        summary: "GPU memory usage is high"
+        description: "GPU {{ $labels.gpu }} on {{ $labels.instance }} has memory usage above 90% for 5 minutes"
+
+    - alert: GPUTemperatureHigh
+      expr: nvidia_gpu_temperature_celsius > 85
+      for: 2m
+      labels:
+        severity: critical
+        component: gpu-resources
+      annotations:
+        summary: "GPU temperature is high"
+        description: "GPU {{ $labels.gpu }} on {{ $labels.instance }} temperature is {{ $value }}°C"
+
+    - alert: GPUUtilizationLow
+      expr: nvidia_gpu_utilization_gpu < 0.1
+      for: 15m
+      labels:
+        severity: info
+        component: gpu-resources
+      annotations:
+        summary: "GPU utilization is low"
+        description: "GPU {{ $labels.gpu }} on {{ $labels.instance }} utilization is below 10% for 15 minutes"
+
+  - name: vector-database
+    rules:
+    - alert: VectorDBConnectionFailed
+      expr: postgresql_up{job="pgvector"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: vector-db
+      annotations:
+        summary: "Vector database is down"
+        description: "PostgreSQL vector database on {{ $labels.instance }} has been down for more than 1 minute"
+
+    - alert: VectorDBHighConnections
+      expr: postgresql_connections{state="active"} > 180
+      for: 5m
+      labels:
+        severity: warning
+        component: vector-db
+      annotations:
+        summary: "High number of database connections"
+        description: "PostgreSQL has {{ $value }} active connections (>90% of max)"
+
+    - alert: VectorDBSlowQueries
+      expr: postgresql_slow_queries > 10
+      for: 2m
+      labels:
+        severity: warning
+        component: vector-db
+      annotations:
+        summary: "Slow vector database queries detected"
+        description: "PostgreSQL has {{ $value }} slow queries in the last 2 minutes"
+
+    - alert: VectorDBDiskSpaceLow
+      expr: (postgresql_database_size_bytes / postgresql_database_size_limit_bytes) > 0.85
+      for: 5m
+      labels:
+        severity: warning
+        component: vector-db
+      annotations:
+        summary: "Vector database disk space is low"
+        description: "PostgreSQL database {{ $labels.database }} is using {{ $value | humanizePercentage }} of available disk space"
+
+  - name: model-registry
+    rules:
+    - alert: ModelRegistryDown
+      expr: up{job="model-registry"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: model-registry
+      annotations:
+        summary: "Model registry is down"
+        description: "Model registry service on {{ $labels.instance }} has been down for more than 2 minutes"
+
+    - alert: ModelDownloadFailed
+      expr: increase(model_registry_download_failures_total[10m]) > 0
+      labels:
+        severity: warning
+        component: model-registry
+      annotations:
+        summary: "Model download failed"
+        description: "Model {{ $labels.model }} download failed {{ $value }} times in the last 10 minutes"
+
+    - alert: ModelCacheEviction
+      expr: rate(model_registry_cache_evictions_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: info
+        component: model-registry
+      annotations:
+        summary: "High model cache eviction rate"
+        description: "Model cache is evicting models at {{ $value }} per second"
+
+  - name: kserve-inference
+    rules:
+    - alert: InferenceServiceDown
+      expr: up{job="kserve-inference"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: inference-service
+      annotations:
+        summary: "Inference service is down"
+        description: "KServe inference service {{ $labels.service_name }} has been down for more than 2 minutes"
+
+    - alert: ModelLoadingTimeout
+      expr: kserve_model_loading_duration_seconds > 300
+      labels:
+        severity: warning
+        component: inference-service
+      annotations:
+        summary: "Model loading is taking too long"
+        description: "Model {{ $labels.model }} is taking {{ $value }}s to load (>5 minutes)"
+
+    - alert: InferenceServiceScalingIssue
+      expr: kserve_autoscaling_desired_replicas != kserve_autoscaling_current_replicas
+      for: 10m
+      labels:
+        severity: warning
+        component: inference-service
+      annotations:
+        summary: "Inference service scaling issue"
+        description: "KServe service {{ $labels.service_name }} desired replicas ({{ $labels.desired }}) != current replicas ({{ $labels.current }}) for 10 minutes"
