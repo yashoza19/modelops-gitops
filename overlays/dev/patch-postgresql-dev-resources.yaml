@@ -4,6 +4,8 @@ kind: Cluster
 metadata:
   name: postgresql-pgvector
   namespace: gitops-llm-platform
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   instances: 1
   storage:

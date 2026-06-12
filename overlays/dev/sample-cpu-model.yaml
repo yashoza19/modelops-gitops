@@ -19,7 +19,7 @@ spec:
   source:
     type: huggingface
     uri: distilbert-base-uncased
-    revision: 1c4513b2eedbda136f57676a34ebd5b6b0dcc8fcf   # Pinned revision - no :latest
+    revision: 1c4513b2eedbda136f57676a34ebd5b6b0dcc8fcf   # Pinned revision
   quantization:
     enabled: true
     method: int8

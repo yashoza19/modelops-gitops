@@ -34,7 +34,7 @@ patches:
 # Replace GPU node selectors with CPU-only for dev
 
 # Resource limits for 8Gi budget compliance
-patchesJson6902:
+patches:
   - target:
       version: v1
       kind: PersistentVolumeClaim

@@ -277,7 +277,7 @@ spec:
           predictor:
             containers:
               - name: kserve-container
-                image: "placeholder-registry/model-name:placeholder-tag"
+                image: "$(params.registry-url)/$(params.model-name):$(params.model-version)"
                 resources:
                   requests:
                     cpu: "1"

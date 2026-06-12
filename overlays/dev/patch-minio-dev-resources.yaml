@@ -1,9 +1,10 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: minio
   namespace: gitops-llm-platform
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   template:
     spec:

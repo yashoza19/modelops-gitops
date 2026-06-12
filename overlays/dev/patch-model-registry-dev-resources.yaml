@@ -1,9 +1,10 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: model-registry-controller
   namespace: gitops-llm-platform
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   template:
     spec:
@@ -29,6 +30,8 @@ kind: Deployment
 metadata:
   name: model-registry-api
   namespace: gitops-llm-platform
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   template:
     spec:

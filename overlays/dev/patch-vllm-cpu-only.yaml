@@ -5,6 +5,8 @@ kind: ServingRuntime
 metadata:
   name: vllm-runtime-gpu
   namespace: gitops-llm-platform
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   # Reduce resources for dev environment
   containers:

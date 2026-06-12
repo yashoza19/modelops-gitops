@@ -4,6 +4,8 @@ kind: Prometheus
 metadata:
   name: llm-platform-prometheus
   namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   replicas: 1
   retention: 3d
@@ -27,6 +29,8 @@ kind: Alertmanager
 metadata:
   name: llm-platform-alertmanager
   namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: gitops-llm-paper
 spec:
   replicas: 1
   storage:
